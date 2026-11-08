@@ -1,9 +1,11 @@
 package com.example.payments;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.example.payments.domain.Payment;
 import com.example.payments.domain.PaymentRepository;
+import com.example.payments.domain.ProcessedCallback;
 import com.example.payments.domain.ProcessedCallbackRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.time.Instant;
@@ -23,7 +25,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Two callbacks for the same payment arriving at the same time. The row lock must serialise
@@ -45,6 +50,9 @@ class CallbackConcurrencyTest {
 
     @Autowired
     private ProcessedCallbackRepository processedCallbacks;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private ExecutorService executor;
 
@@ -91,6 +99,48 @@ class CallbackConcurrencyTest {
         Payment finalState = payments.findByProviderPaymentId("prov-duplicated").orElseThrow();
         assertThat(finalState.getStatus().name()).isEqualTo("SUCCEEDED");
         assertThat(finalState.getLastCallbackOccurredAt()).isEqualTo(T2);
+    }
+
+    @Test
+    void sameEventIdAcrossTwoPaymentsIsAppliedOnce() throws Exception {
+        Payment firstPayment = seedPayment("prov-shared-a");
+        Payment secondPayment = seedPayment("prov-shared-b");
+
+        List<String> results = race(
+                () -> postCallback("evt-shared", firstPayment.getProviderPaymentId(), "CAPTURED", T2),
+                () -> postCallback("evt-shared", secondPayment.getProviderPaymentId(), "CAPTURED", T2));
+
+        assertThat(results).containsExactlyInAnyOrder("APPLIED", "DUPLICATE");
+        assertThat(processedCallbacks.count()).isEqualTo(1);
+
+        List<Payment> all = payments.findAll();
+        assertThat(all).filteredOn(payment -> payment.getStatus().name().equals("SUCCEEDED")).hasSize(1);
+        assertThat(all).filteredOn(payment -> payment.getStatus().name().equals("PENDING")).hasSize(1);
+
+        Payment applied = all.stream()
+                .filter(payment -> payment.getStatus().name().equals("SUCCEEDED"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(processedCallbacks.findById("evt-shared").orElseThrow().getPaymentId())
+                .isEqualTo(applied.getId());
+    }
+
+    @Test
+    void duplicateEventInsertDoesNotUpdateTheWinnersRow() {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        String eventId = "evt-duplicate-" + UUID.randomUUID();
+        UUID firstPayment = UUID.randomUUID();
+        UUID secondPayment = UUID.randomUUID();
+
+        transaction.executeWithoutResult(status -> processedCallbacks.saveAndFlush(
+                new ProcessedCallback(eventId, firstPayment, Instant.now())));
+
+        assertThatThrownBy(() -> transaction.executeWithoutResult(status -> processedCallbacks.saveAndFlush(
+                new ProcessedCallback(eventId, secondPayment, Instant.now()))))
+                .isInstanceOf(DataIntegrityViolationException.class);
+
+        assertThat(processedCallbacks.findById(eventId).orElseThrow().getPaymentId())
+                .isEqualTo(firstPayment);
     }
 
     private List<String> race(Callable<String> first, Callable<String> second) throws Exception {
