@@ -3,7 +3,9 @@ package com.example.payments;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.payments.domain.PaymentRepository;
@@ -14,6 +16,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -82,6 +86,35 @@ class PaymentApiTest {
                 .andReturn());
 
         assertThat(fetched).isEqualTo(body);
+
+        List<String> fieldNames = new ArrayList<>();
+        fetched.fieldNames().forEachRemaining(fieldNames::add);
+        assertThat(fieldNames).containsExactlyInAnyOrder(
+                "id", "status", "providerStatus", "providerPaymentId", "lastCallbackOccurredAt",
+                "amount", "currency", "customerReference");
+    }
+
+    @Test
+    void unknownPathReturns404() throws Exception {
+        mockMvc.perform(get("/nope"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("not_found"));
+    }
+
+    @Test
+    void wrongMethodReturns405() throws Exception {
+        mockMvc.perform(put("/payments"))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.error").value("method_not_allowed"));
+    }
+
+    @Test
+    void unsupportedMediaTypeReturns415() throws Exception {
+        mockMvc.perform(post("/payments")
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("amount=12.50"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.error").value("unsupported_media_type"));
     }
 
     @Test
