@@ -214,6 +214,9 @@ Callback auth is off by default so the assignment contract stays unchanged. Enab
 APP_CALLBACK_AUTH_ENABLED=true APP_CALLBACK_AUTH_SECRET="<shared secret>" ./gradlew bootRun
 ```
 
+With Docker, the same variables work with `docker compose up --build`; they are forwarded in
+`docker-compose.yml`.
+
 The fake provider signs automatically when auth is on. External callers must send:
 
 - `X-Provider-Timestamp`: epoch seconds
