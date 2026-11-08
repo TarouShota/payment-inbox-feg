@@ -1,5 +1,7 @@
 # Payment Inbox
 
+[![CI](https://github.com/TarouShota/payment-inbox-feg/actions/workflows/ci.yml/badge.svg)](https://github.com/TarouShota/payment-inbox-feg/actions/workflows/ci.yml)
+
 A small operator app for card payments. The operator starts a payment; a fake provider accepts it
 immediately and reports the outcome asynchronously through a callback. The operator follows the
 status until it reaches a final state.
@@ -75,15 +77,29 @@ cd backend
 ./gradlew test
 ```
 
-96 backend tests: payment API validation and contract, all callback rules (including equal
+97 backend tests: payment API validation and contract, all callback rules (including equal
 timestamps), the suppressed-callback decision proof, concurrency (two racing callbacks, duplicate
-event ids, simultaneous idempotent creates), signed-callback authentication, and real-HTTP
-end-to-end tests of the fake provider. Frontend type-check and production build:
+event ids, simultaneous idempotent creates), signed-callback authentication, real-HTTP end-to-end
+tests of the fake provider, and the generated OpenAPI document. Frontend type-check and production
+build:
 
 ```bash
 cd frontend
 npm run build
 ```
+
+Both suites run in GitHub Actions on every push to `main` and every pull request
+(`.github/workflows/ci.yml`).
+
+## API docs
+
+With the backend running:
+
+- Swagger UI: <http://localhost:8080/swagger-ui.html>
+- OpenAPI JSON: <http://localhost:8080/v3/api-docs>
+
+The schema is generated from the controllers and DTOs, so it stays in step with the code. It is
+not a replacement for the behavioural tests above.
 
 ## Fake provider
 
@@ -230,14 +246,15 @@ and the other design decisions are in [NOTES.md](NOTES.md).
 ## Project structure
 
 ```
+.github/   CI workflow (backend tests, frontend build)
 backend/   Spring Boot service, tests, Gradle wrapper
 frontend/  Vue 3 + TypeScript page and polling composable
 NOTES.md   Decisions, an AI mistake, production gaps
 ```
 
-Backend packages: `api` (controllers, DTOs, error handling), `domain` (entities, repositories),
-`service` (payment creation, callback rules), `provider` (fake provider, HTTP callback client),
-`security` (optional callback HMAC authentication).
+Backend packages: `api` (controllers, DTOs, error handling), `config` (OpenAPI metadata),
+`domain` (entities, repositories), `service` (payment creation, callback rules), `provider` (fake
+provider, HTTP callback client), `security` (optional callback HMAC authentication).
 
 H2 is in-memory: restarting the backend discards payments, and an in-flight fake callback dies with
 the process. This is deliberate for a self-contained demo.
