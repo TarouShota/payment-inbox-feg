@@ -51,7 +51,7 @@ sequenceDiagram
 
 - Money is `BigDecimal` in the request, domain, provider call and response; the DB column is
   `NUMERIC(19,2)`. Validation rejects zero, negative amounts, more than two decimals and malformed
-  currencies; `setScale(2)` only pads zeros, it never rounds. The frontend's `12.50` is a
+  currencies; `setScale(2)` only pads zeros, it never rounds. The frontend's `12` is a
   placeholder for the expected shape, sends the raw string and only formats the returned value for
   display; it does no money arithmetic.
 - Callback processing locks the payment row, deduplicates `eventId` in a global table, and only
