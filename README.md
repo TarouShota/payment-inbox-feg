@@ -75,10 +75,10 @@ cd backend
 ./gradlew test
 ```
 
-86 backend tests: payment API validation and contract, all callback rules (including equal
+96 backend tests: payment API validation and contract, all callback rules (including equal
 timestamps), the suppressed-callback decision proof, concurrency (two racing callbacks, duplicate
-event ids), signed-callback authentication, and real-HTTP end-to-end tests of the fake provider.
-Frontend type-check and production build:
+event ids, simultaneous idempotent creates), signed-callback authentication, and real-HTTP
+end-to-end tests of the fake provider. Frontend type-check and production build:
 
 ```bash
 cd frontend
@@ -159,6 +159,21 @@ curl -i -X POST http://localhost:8080/payments \
 - `amount`: positive, at most 2 decimals (JSON number or numeric string, kept exact with `BigDecimal`)
 - `currency`: exactly 3 letters, normalised to uppercase
 - `customerReference`: non-blank, max 255 chars
+- optional `Idempotency-Key` header (1–128 safe characters)
+
+Retries with the same `Idempotency-Key` and the same data return the original payment: `201`, the
+same body and `Location`, plus `Idempotency-Replayed: true`. The provider is not called again.
+Equivalent amount formatting (`10.0` vs `10.00`) and currency case count as the same request.
+Reusing a key with different data returns `409 idempotency_key_reuse`; a malformed key returns
+`400 invalid_idempotency_key`. Without the header, every request creates a payment. The unique key
+column also settles two simultaneous first attempts: one creates, the other replays.
+
+```bash
+curl -i -X POST http://localhost:8080/payments \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: checkout-1042' \
+  -d '{"amount": 12.50, "currency": "EUR", "customerReference": "ORDER-1001"}'
+```
 
 `201 Created` with a `Location` header and:
 

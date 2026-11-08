@@ -40,6 +40,14 @@ public class Payment {
     @Column(name = "last_callback_occurred_at")
     private Instant lastCallbackOccurredAt;
 
+    /** Client-supplied key that makes POST /payments safe to retry. Null when not supplied. */
+    @Column(name = "idempotency_key", length = 128, unique = true)
+    private String idempotencyKey;
+
+    /** SHA-256 of the normalized create request, used to reject key reuse with other data. */
+    @Column(name = "idempotency_request_hash", length = 64)
+    private String idempotencyRequestHash;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -49,6 +57,12 @@ public class Payment {
 
     public Payment(UUID id, BigDecimal amount, String currency, String customerReference,
                    String providerPaymentId, Instant createdAt) {
+        this(id, amount, currency, customerReference, providerPaymentId, createdAt, null, null);
+    }
+
+    public Payment(UUID id, BigDecimal amount, String currency, String customerReference,
+                   String providerPaymentId, Instant createdAt, String idempotencyKey,
+                   String idempotencyRequestHash) {
         this.id = id;
         this.amount = amount;
         this.currency = currency;
@@ -56,6 +70,8 @@ public class Payment {
         this.providerPaymentId = providerPaymentId;
         this.status = PaymentStatus.PENDING;
         this.createdAt = createdAt;
+        this.idempotencyKey = idempotencyKey;
+        this.idempotencyRequestHash = idempotencyRequestHash;
     }
 
     /**
@@ -102,5 +118,13 @@ public class Payment {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getIdempotencyKey() {
+        return idempotencyKey;
+    }
+
+    public String getIdempotencyRequestHash() {
+        return idempotencyRequestHash;
     }
 }

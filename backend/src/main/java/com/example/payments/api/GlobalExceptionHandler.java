@@ -1,7 +1,9 @@
 package com.example.payments.api;
 
 import com.example.payments.api.dto.ApiError;
+import com.example.payments.service.IdempotencyKeyConflictException;
 import com.example.payments.service.InvalidCallbackTimeException;
+import com.example.payments.service.InvalidIdempotencyKeyException;
 import com.example.payments.service.PaymentNotFoundException;
 import com.example.payments.service.UnknownProviderPaymentException;
 import java.util.LinkedHashMap;
@@ -64,6 +66,18 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleInvalidCallbackTime(InvalidCallbackTimeException e) {
         return ResponseEntity.badRequest()
                 .body(ApiError.of("invalid_occurred_at", e.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidIdempotencyKeyException.class)
+    public ResponseEntity<ApiError> handleInvalidIdempotencyKey(InvalidIdempotencyKeyException e) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of("invalid_idempotency_key", e.getMessage()));
+    }
+
+    @ExceptionHandler(IdempotencyKeyConflictException.class)
+    public ResponseEntity<ApiError> handleIdempotencyKeyConflict(IdempotencyKeyConflictException e) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(ApiError.of("idempotency_key_reuse", e.getMessage()));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

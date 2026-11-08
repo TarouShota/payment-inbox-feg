@@ -54,5 +54,5 @@ Suppressed callbacks still record the eventId. That test and the field assertion
   outbox, dead-letter queue or reconciliation.
 - No ledger or audit trail. Status is overwritten in place. A real payment service needs
   append-only events and the raw callback history.
-- No auth, rate limiting, PII retention, observability or idempotency keys on `POST /payments`.
-  Refunds, chargebacks, partial captures and rounding rules are also missing.
+- No authentication on the operator API, rate limiting, PII retention or observability. Refunds,
+  chargebacks, partial captures and rounding rules are also missing.
