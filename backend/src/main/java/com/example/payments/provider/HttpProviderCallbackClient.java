@@ -3,8 +3,6 @@ package com.example.payments.provider;
 import com.example.payments.security.CallbackSigner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
@@ -13,8 +11,6 @@ import org.springframework.web.client.RestClient;
 /** Posts the fake provider's callback over real HTTP, exactly like an external provider would. */
 @Component
 public class HttpProviderCallbackClient implements ProviderCallbackClient {
-
-    private static final Logger log = LoggerFactory.getLogger(HttpProviderCallbackClient.class);
 
     private final RestClient restClient;
     private final ProviderProperties properties;
@@ -54,11 +50,10 @@ public class HttpProviderCallbackClient implements ProviderCallbackClient {
             }
 
             request.body(payload).retrieve().toBodilessEntity();
-            log.info("Fake provider delivered callback {} for {} ({})",
-                    callback.eventId(), callback.providerPaymentId(), callback.status());
         } catch (Exception e) {
-            log.warn("Fake provider failed to deliver callback {} for {}: {}",
-                    callback.eventId(), callback.providerPaymentId(), e.toString());
+            throw new CallbackDeliveryException(
+                    "callback " + callback.eventId() + " for " + callback.providerPaymentId()
+                            + " failed: " + e, e);
         }
     }
 }

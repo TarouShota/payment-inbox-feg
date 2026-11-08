@@ -25,7 +25,11 @@ app:
     max-delay-ms: ${APP_PROVIDER_MAX_DELAY_MS:5000}
     connect-timeout-ms: ${APP_PROVIDER_CONNECT_TIMEOUT_MS:2000}
     read-timeout-ms: ${APP_PROVIDER_READ_TIMEOUT_MS:5000}
-    scheduler-pool-size: ${APP_PROVIDER_SCHEDULER_POOL_SIZE:4}
+    # Callback relay: how often due outbox rows are checked, and the retry policy.
+    relay-interval-ms: ${APP_PROVIDER_RELAY_INTERVAL_MS:100}
+    max-attempts: ${APP_PROVIDER_MAX_ATTEMPTS:5}
+    initial-retry-ms: ${APP_PROVIDER_INITIAL_RETRY_MS:500}
+    max-retry-ms: ${APP_PROVIDER_MAX_RETRY_MS:30000}
     # Disabled in most tests so they can drive callbacks deterministically.
     auto-callback: ${APP_PROVIDER_AUTO_CALLBACK:true}
   callback:

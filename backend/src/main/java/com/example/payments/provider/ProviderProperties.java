@@ -20,10 +20,16 @@ public class ProviderProperties {
 
     private int readTimeoutMs = 5000;
 
-    /** Callback delivery threads. The fake provider is the only user of this pool. */
-    private int schedulerPoolSize = 4;
+    /** Delivery attempts before a callback is parked in DEAD (the dead-letter state). */
+    private int maxAttempts = 5;
 
-    /** Test switch: when false, creating a payment schedules no callback. */
+    /** First retry delay; doubles on every failed attempt. */
+    private long initialRetryMs = 500;
+
+    /** Upper bound for the exponential backoff. */
+    private long maxRetryMs = 30000;
+
+    /** Test switch: when false, creating a payment enqueues no callback. */
     private boolean autoCallback = true;
 
     public String getOutcome() {
@@ -74,12 +80,28 @@ public class ProviderProperties {
         this.readTimeoutMs = readTimeoutMs;
     }
 
-    public int getSchedulerPoolSize() {
-        return schedulerPoolSize;
+    public int getMaxAttempts() {
+        return maxAttempts;
     }
 
-    public void setSchedulerPoolSize(int schedulerPoolSize) {
-        this.schedulerPoolSize = schedulerPoolSize;
+    public void setMaxAttempts(int maxAttempts) {
+        this.maxAttempts = maxAttempts;
+    }
+
+    public long getInitialRetryMs() {
+        return initialRetryMs;
+    }
+
+    public void setInitialRetryMs(long initialRetryMs) {
+        this.initialRetryMs = initialRetryMs;
+    }
+
+    public long getMaxRetryMs() {
+        return maxRetryMs;
+    }
+
+    public void setMaxRetryMs(long maxRetryMs) {
+        this.maxRetryMs = maxRetryMs;
     }
 
     public boolean isAutoCallback() {

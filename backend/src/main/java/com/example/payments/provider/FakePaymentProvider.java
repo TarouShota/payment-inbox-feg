@@ -6,7 +6,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
-import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -19,15 +18,13 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class FakePaymentProvider implements PaymentProvider {
 
     private final ProviderProperties properties;
-    private final ProviderCallbackClient callbackClient;
-    private final ThreadPoolTaskScheduler scheduler;
+    private final CallbackOutboxRepository outbox;
     private final Clock clock;
 
-    public FakePaymentProvider(ProviderProperties properties, ProviderCallbackClient callbackClient,
-                               ThreadPoolTaskScheduler scheduler, Clock clock) {
+    public FakePaymentProvider(ProviderProperties properties, CallbackOutboxRepository outbox,
+                               Clock clock) {
         this.properties = properties;
-        this.callbackClient = callbackClient;
-        this.scheduler = scheduler;
+        this.outbox = outbox;
         this.clock = clock;
     }
 
@@ -37,18 +34,19 @@ public class FakePaymentProvider implements PaymentProvider {
     }
 
     /**
-     * Runs only after the payment transaction commits, so the provider can never race ahead of
-     * the row it is about to update.
+     * Writes the callback into the outbox in the same transaction as the payment. Either both
+     * rows commit or neither does, so a committed payment can never lose its callback. The
+     * relay delivers it later.
      */
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     public void onPaymentCreated(PaymentCreatedEvent event) {
         if (!properties.isAutoCallback()) {
             return;
         }
-        long delayMs = randomDelayMs();
-        scheduler.schedule(
-                () -> callbackClient.send(buildCallback(event.providerPaymentId())),
-                Instant.now(clock).plusMillis(delayMs));
+        Instant now = Instant.now(clock);
+        ProviderCallback callback = buildCallback(event.providerPaymentId());
+        outbox.save(new CallbackOutbox(
+                event.paymentId(), callback, now, now.plusMillis(randomDelayMs())));
     }
 
     ProviderCallback buildCallback(String providerPaymentId) {

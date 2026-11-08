@@ -4,6 +4,8 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.example.payments.provider.CallbackDeliveryState;
+import com.example.payments.provider.CallbackOutboxRepository;
 import com.example.payments.provider.ProviderProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.math.BigDecimal;
@@ -40,6 +42,9 @@ class FakeProviderIntegrationTest {
     @Autowired
     private ProviderProperties providerProperties;
 
+    @Autowired
+    private CallbackOutboxRepository outbox;
+
     @BeforeEach
     void pointProviderAtRandomPort() {
         providerProperties.setCallbackUrl("http://localhost:" + port + "/provider-callbacks");
@@ -57,7 +62,14 @@ class FakeProviderIntegrationTest {
         JsonNode payment = fetch(created.path("id").asText());
         assertThat(payment.path("providerStatus").asText()).isEqualTo("CAPTURED");
         assertThat(payment.path("lastCallbackOccurredAt").isNull()).isFalse();
-        assertThat(payment.path("providerPaymentId").asText()).startsWith("prov-");
+        String providerPaymentId = payment.path("providerPaymentId").asText();
+        assertThat(providerPaymentId).startsWith("prov-");
+
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(outbox.findAll())
+                .anySatisfy(row -> {
+                    assertThat(row.getProviderPaymentId()).isEqualTo(providerPaymentId);
+                    assertThat(row.getState()).isEqualTo(CallbackDeliveryState.SENT);
+                }));
     }
 
     private JsonNode createPayment() {
