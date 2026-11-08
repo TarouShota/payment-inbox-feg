@@ -102,6 +102,25 @@ class PaymentApiTest {
     }
 
     @Test
+    void requestIdIsEchoedWhenSafeAndGeneratedOtherwise() throws Exception {
+        mockMvc.perform(get("/nope").header("X-Request-Id", "test-request-123"))
+                .andExpect(status().isNotFound())
+                .andExpect(header().string("X-Request-Id", "test-request-123"));
+
+        MvcResult generated = mockMvc.perform(get("/nope"))
+                .andExpect(status().isNotFound())
+                .andReturn();
+        assertThat(generated.getResponse().getHeader("X-Request-Id")).isNotBlank();
+
+        MvcResult sanitized = mockMvc.perform(get("/nope").header("X-Request-Id", "bad id with spaces"))
+                .andExpect(status().isNotFound())
+                .andReturn();
+        assertThat(sanitized.getResponse().getHeader("X-Request-Id"))
+                .isNotBlank()
+                .isNotEqualTo("bad id with spaces");
+    }
+
+    @Test
     void wrongMethodReturns405() throws Exception {
         mockMvc.perform(put("/payments"))
                 .andExpect(status().isMethodNotAllowed())

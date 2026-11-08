@@ -3,6 +3,7 @@ package com.example.payments;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.example.payments.domain.Payment;
@@ -12,6 +13,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -402,6 +404,36 @@ class ProviderCallbackRulesTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void timestampFarInTheFutureIsRejectedAndNotRecorded() throws Exception {
+        String providerPaymentId = createPayment("prov-1");
+
+        mockMvc.perform(post("/provider-callbacks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(callbackJson(
+                                "evt-future", providerPaymentId, "CAPTURED",
+                                Instant.now().plus(10, ChronoUnit.MINUTES))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("invalid_occurred_at"));
+
+        assertThat(processedCallbacks.count()).isZero();
+        Payment payment = payment(providerPaymentId);
+        assertThat(payment.getStatus().name()).isEqualTo("PENDING");
+        assertThat(payment.getLastCallbackOccurredAt()).isNull();
+    }
+
+    @Test
+    void timestampWithinClockSkewIsAccepted() throws Exception {
+        String providerPaymentId = createPayment("prov-1");
+
+        assertThat(callback(
+                "evt-near-future", providerPaymentId, "CAPTURED",
+                Instant.now().plus(1, ChronoUnit.MINUTES)).path("result").asText())
+                .isEqualTo("APPLIED");
+
+        assertThat(payment(providerPaymentId).getStatus().name()).isEqualTo("SUCCEEDED");
     }
 
     @Test

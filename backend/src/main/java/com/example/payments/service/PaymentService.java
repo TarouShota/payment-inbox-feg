@@ -7,12 +7,16 @@ import com.example.payments.provider.PaymentProvider;
 import java.time.Clock;
 import java.util.Locale;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class PaymentService {
+
+    private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
 
     private final PaymentRepository payments;
     private final PaymentProvider provider;
@@ -40,6 +44,8 @@ public class PaymentService {
                 providerPaymentId,
                 clock.instant());
         payments.save(payment);
+        log.info("payment created paymentId={} providerPaymentId={} amount={} currency={}",
+                payment.getId(), providerPaymentId, payment.getAmount(), payment.getCurrency());
 
         // Delivered after commit, so the fake provider can never call back for a payment
         // that has not been committed yet.

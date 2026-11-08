@@ -25,3 +25,10 @@ app:
     max-delay-ms: ${APP_PROVIDER_MAX_DELAY_MS:5000}
     # Disabled in most tests so they can drive callbacks deterministically.
     auto-callback: ${APP_PROVIDER_AUTO_CALLBACK:true}
+  callback:
+    # Reject provider timestamps further ahead than this; they would freeze the watermark.
+    max-future-skew: ${APP_CALLBACK_MAX_FUTURE_SKEW:5m}
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId:-}] %logger{36} - %msg%n"

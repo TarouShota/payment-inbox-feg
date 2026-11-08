@@ -101,7 +101,13 @@ APP_PROVIDER_OUTCOME=WHATEVER ./gradlew bootRun   # anything unrecognised -> pay
 
 Other knobs: `APP_PROVIDER_MIN_DELAY_MS` (default 2000), `APP_PROVIDER_MAX_DELAY_MS` (default
 5000), `APP_PROVIDER_CALLBACK_URL` (default `http://localhost:8080/provider-callbacks`),
-`APP_PROVIDER_AUTO_CALLBACK` (default `true`; tests switch it off).
+`APP_PROVIDER_AUTO_CALLBACK` (default `true`; tests switch it off). Callback timestamps further
+ahead than `APP_CALLBACK_MAX_FUTURE_SKEW` (default `5m`) are rejected with `400`, so a bad
+provider clock cannot freeze the ordering watermark.
+
+Every request gets an `X-Request-Id` header (incoming safe ids are reused, otherwise one is
+generated) and each callback logs a single `callback outcome=...` line with the event id,
+payment id and status transition. Customer references are not logged.
 
 ## API
 

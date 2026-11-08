@@ -1,6 +1,7 @@
 package com.example.payments.api;
 
 import com.example.payments.api.dto.ApiError;
+import com.example.payments.service.InvalidCallbackTimeException;
 import com.example.payments.service.PaymentNotFoundException;
 import com.example.payments.service.UnknownProviderPaymentException;
 import java.util.LinkedHashMap;
@@ -57,6 +58,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleUnknownProviderPayment(UnknownProviderPaymentException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(ApiError.of("unknown_provider_payment", e.getMessage()));
+    }
+
+    @ExceptionHandler(InvalidCallbackTimeException.class)
+    public ResponseEntity<ApiError> handleInvalidCallbackTime(InvalidCallbackTimeException e) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of("invalid_occurred_at", e.getMessage()));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)
