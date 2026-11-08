@@ -86,6 +86,13 @@ I wrote the 12:00:10 / 12:00:20 / 12:00:15 sequence and the test failed: DECLINE
 fix was to update `status`, `providerStatus` and the watermark only on `APPLIED`, while still
 recording the eventId on suppression. The regression test is in `ProviderCallbackRulesTest`.
 
+## Why H2
+
+The brief allows H2/SQLite or Compose with Postgres. I picked H2 in memory: it keeps the demo to
+two containers, needs no credentials and no external calls, and supports the row lock and unique
+constraints the callback rules rely on. The cost is that a restart loses data, which is the first
+production gap below.
+
 ## Not production ready
 
 - **Persistence and delivery.** H2 in memory means a restart loses payments and pending outbox

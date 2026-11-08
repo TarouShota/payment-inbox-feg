@@ -151,6 +151,9 @@ npm test
 npm run build
 ```
 
+The Docker image builds with `-x test`, so run these suites before
+`docker compose up --build` if you want the tests in the loop.
+
 Both suites run in GitHub Actions on every push to `main` and every pull request
 (`.github/workflows/ci.yml`).
 
@@ -180,6 +183,9 @@ APP_PROVIDER_OUTCOME=DECLINED ./gradlew bootRun   # -> payment FAILED
 APP_PROVIDER_OUTCOME=ERROR    ./gradlew bootRun   # -> payment UNKNOWN
 APP_PROVIDER_OUTCOME=WHATEVER ./gradlew bootRun   # anything unrecognised -> payment UNKNOWN
 ```
+
+With Docker, prefix the same variable to `docker compose up --build`, or use
+`docker compose up -d backend` to recreate only the backend after changing it.
 
 Other knobs:
 
