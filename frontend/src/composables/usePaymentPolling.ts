@@ -3,6 +3,7 @@ import { readApiError } from '../api'
 import type { Payment, PaymentStatus } from '../types'
 
 const POLL_INTERVAL_MS = 2000
+const POLL_TIMEOUT_MS = 8000
 
 export interface UsePaymentPollingReturn {
   /** The payment currently being watched (updated by each successful poll). */
@@ -60,6 +61,11 @@ export function usePaymentPolling(): UsePaymentPollingReturn {
   async function fetchLatest(id: string, gen: number): Promise<void> {
     const current = new AbortController()
     controller = current
+    let timedOut = false
+    const timeout = setTimeout(() => {
+      timedOut = true
+      current.abort()
+    }, POLL_TIMEOUT_MS)
 
     try {
       const response = await fetch(`/payments/${encodeURIComponent(id)}`, {
@@ -100,17 +106,19 @@ export function usePaymentPolling(): UsePaymentPollingReturn {
       scheduleNext(id, gen)
     } catch {
       if (gen !== generation) return
-      if (current.signal.aborted) return
+      if (current.signal.aborted && !timedOut) return
 
       // The provider may still be working: keep the banner up and keep retrying.
-      networkError.value =
-        'Cannot reach the payment service. Retrying while the payment is still open.'
+      networkError.value = timedOut
+        ? 'The payment service did not respond in time. Retrying while the payment is still open.'
+        : 'Cannot reach the payment service. Retrying while the payment is still open.'
       if (!isTerminal(payment.value?.status)) {
         scheduleNext(id, gen)
       } else {
         isPolling.value = false
       }
     } finally {
+      clearTimeout(timeout)
       if (controller === current) controller = null
     }
   }

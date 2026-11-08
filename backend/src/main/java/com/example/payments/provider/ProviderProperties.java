@@ -15,6 +15,14 @@ public class ProviderProperties {
 
     private long maxDelayMs = 5000;
 
+    /** Timeouts for the fake provider's callback HTTP client. */
+    private int connectTimeoutMs = 2000;
+
+    private int readTimeoutMs = 5000;
+
+    /** Callback delivery threads. The fake provider is the only user of this pool. */
+    private int schedulerPoolSize = 4;
+
     /** Test switch: when false, creating a payment schedules no callback. */
     private boolean autoCallback = true;
 
@@ -48,6 +56,30 @@ public class ProviderProperties {
 
     public void setMaxDelayMs(long maxDelayMs) {
         this.maxDelayMs = maxDelayMs;
+    }
+
+    public int getConnectTimeoutMs() {
+        return connectTimeoutMs;
+    }
+
+    public void setConnectTimeoutMs(int connectTimeoutMs) {
+        this.connectTimeoutMs = connectTimeoutMs;
+    }
+
+    public int getReadTimeoutMs() {
+        return readTimeoutMs;
+    }
+
+    public void setReadTimeoutMs(int readTimeoutMs) {
+        this.readTimeoutMs = readTimeoutMs;
+    }
+
+    public int getSchedulerPoolSize() {
+        return schedulerPoolSize;
+    }
+
+    public void setSchedulerPoolSize(int schedulerPoolSize) {
+        this.schedulerPoolSize = schedulerPoolSize;
     }
 
     public boolean isAutoCallback() {

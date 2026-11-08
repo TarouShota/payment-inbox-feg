@@ -9,8 +9,9 @@ const {
   networkError,
   isPolling,
   start: startPolling,
-  reset: resetPolling,
 } = usePaymentPolling()
+
+const CREATE_TIMEOUT_MS = 10_000
 
 const form = reactive({
   amount: '',
@@ -84,12 +85,16 @@ async function submit(): Promise<void> {
 
   formMessage.value = null
   fieldErrors.value = {}
-  resetPolling()
   submitting.value = true
 
   createController?.abort()
   const controller = new AbortController()
   createController = controller
+  let timedOut = false
+  const timeout = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, CREATE_TIMEOUT_MS)
 
   try {
     const response = await fetch('/payments', {
@@ -103,18 +108,18 @@ async function submit(): Promise<void> {
       signal: controller.signal,
     })
 
-    if (controller.signal.aborted) return
+    if (controller.signal.aborted && !timedOut) return
 
     if (response.status === 201) {
       const created = (await response.json()) as Payment
-      if (controller.signal.aborted) return
+      if (controller.signal.aborted && !timedOut) return
       submitting.value = false
       startPolling(created)
       return
     }
 
     const apiError = await readApiError(response)
-    if (controller.signal.aborted) return
+    if (controller.signal.aborted && !timedOut) return
 
     if (apiError && hasFieldErrors(apiError.fieldErrors)) {
       fieldErrors.value = apiError.fieldErrors ?? {}
@@ -124,12 +129,18 @@ async function submit(): Promise<void> {
       formMessage.value = `Payment could not be created (HTTP ${response.status}).`
     }
   } catch {
+    if (timedOut) {
+      formMessage.value =
+        'The payment service did not respond in time. Check that the backend is healthy and try again.'
+      return
+    }
     if (controller.signal.aborted) return
     formMessage.value =
       'Cannot reach the payment service. Check that the backend is running on http://localhost:8080.'
   } finally {
+    clearTimeout(timeout)
     if (createController === controller) createController = null
-    if (!controller.signal.aborted) submitting.value = false
+    if (!controller.signal.aborted || timedOut) submitting.value = false
   }
 }
 

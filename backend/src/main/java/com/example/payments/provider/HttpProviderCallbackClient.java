@@ -3,6 +3,7 @@ package com.example.payments.provider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -16,7 +17,11 @@ public class HttpProviderCallbackClient implements ProviderCallbackClient {
     private final ProviderProperties properties;
 
     public HttpProviderCallbackClient(RestClient.Builder restClientBuilder, ProviderProperties properties) {
-        this.restClient = restClientBuilder.build();
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(properties.getConnectTimeoutMs());
+        requestFactory.setReadTimeout(properties.getReadTimeoutMs());
+
+        this.restClient = restClientBuilder.requestFactory(requestFactory).build();
         this.properties = properties;
     }
 

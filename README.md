@@ -65,7 +65,8 @@ npm run dev
 ```
 
 Open <http://localhost:3000>. The first build needs Maven Central and npm once; runtime is fully
-local and makes no external calls.
+local and makes no external calls. Create requests time out after 10 seconds, status polls after
+8 seconds, and a failed create leaves the payment that was already being watched polling.
 
 ## Test
 
@@ -74,7 +75,7 @@ cd backend
 ./gradlew test
 ```
 
-66 backend tests: payment API validation and contract, all callback rules (including equal
+74 backend tests: payment API validation and contract, all callback rules (including equal
 timestamps), the suppressed-callback decision proof, concurrency (two racing callbacks, duplicate
 event ids), and two real-HTTP end-to-end tests of the fake provider. Frontend type-check and
 production build:
@@ -101,7 +102,9 @@ APP_PROVIDER_OUTCOME=WHATEVER ./gradlew bootRun   # anything unrecognised -> pay
 
 Other knobs: `APP_PROVIDER_MIN_DELAY_MS` (default 2000), `APP_PROVIDER_MAX_DELAY_MS` (default
 5000), `APP_PROVIDER_CALLBACK_URL` (default `http://localhost:8080/provider-callbacks`),
-`APP_PROVIDER_AUTO_CALLBACK` (default `true`; tests switch it off). Callback timestamps further
+`APP_PROVIDER_AUTO_CALLBACK` (default `true`; tests switch it off),
+`APP_PROVIDER_CONNECT_TIMEOUT_MS` (default 2000), `APP_PROVIDER_READ_TIMEOUT_MS` (default 5000)
+and `APP_PROVIDER_SCHEDULER_POOL_SIZE` (default 4). Callback timestamps further
 ahead than `APP_CALLBACK_MAX_FUTURE_SKEW` (default `5m`) are rejected with `400`, so a bad
 provider clock cannot freeze the ordering watermark.
 
