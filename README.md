@@ -244,8 +244,9 @@ HMAC, not mTLS or per-provider key management. With auth enabled and a blank sec
 refuses to start.
 
 Every request gets an `X-Request-Id` header (incoming safe ids are reused, otherwise one is
-generated) and each callback logs a single `callback outcome=...` line with the event id,
-payment id and status transition. Customer references are not logged.
+generated). Each accepted callback logs a `callback outcome=...` line with the event id, payment
+id and result; duplicates are logged at `DEBUG`, and rejected callbacks log
+`callback rejected reason=...`. Customer references are not logged.
 
 ## API
 
@@ -265,8 +266,9 @@ curl -i -X POST http://localhost:8080/payments \
 - optional `Idempotency-Key` header (1–128 safe characters)
 
 Retries with the same `Idempotency-Key` and the same data return the original payment: `201`, the
-same body and `Location`, plus `Idempotency-Replayed: true`. A replay that finds the stored payment
-does not call the provider again. Equivalent amount formatting (`10.0` vs `10.00`) and currency case
+same `Location`, plus `Idempotency-Replayed: true`. The body is the payment's current state, so if
+a callback has already advanced it, `status`, `providerStatus` and `lastCallbackOccurredAt` reflect
+that. A replay that finds the stored payment does not call the provider again. Equivalent amount formatting (`10.0` vs `10.00`) and currency case
 count as the same request. Reusing a key with different data returns `409 idempotency_key_reuse`; a
 malformed key returns `400 invalid_idempotency_key`. Without the header, every request creates a
 payment. The unique key column also settles two simultaneous first attempts: one creates, the other
@@ -337,7 +339,7 @@ and the other design decisions are in [NOTES.md](NOTES.md).
 ## Project structure
 
 ```
-.github/             CI workflow (backend tests, frontend build)
+.github/             CI workflow (backend tests, frontend tests and build)
 backend/             Spring Boot service, tests, Gradle wrapper, Dockerfile
 frontend/            Vue 3 + TypeScript page, polling composable, nginx Dockerfile
 docker-compose.yml   Backend + frontend containers on ports 8080 and 3000
