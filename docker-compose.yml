@@ -1,0 +1,24 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8080:8080"
+    environment:
+      APP_PROVIDER_CALLBACK_URL: http://backend:8080/provider-callbacks
+      APP_PROVIDER_OUTCOME: ${APP_PROVIDER_OUTCOME:-CAPTURED}
+      APP_PROVIDER_MIN_DELAY_MS: ${APP_PROVIDER_MIN_DELAY_MS:-2000}
+      APP_PROVIDER_MAX_DELAY_MS: ${APP_PROVIDER_MAX_DELAY_MS:-5000}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/v3/api-docs"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
+      start_period: 20s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy

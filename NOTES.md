@@ -104,6 +104,9 @@ recording the eventId on suppression. The regression test is in `ProviderCallbac
   Production would expose latency and outcome counters and alert on callback failures and unknowns.
 - **Frontend.** One page, no micro frontend or webview shell. The polling composable has unit tests,
   but there are no component or end-to-end tests.
+- **Packaging.** Docker Compose builds the backend with the committed wrapper and the frontend with
+  Node 22, so the demo does not depend on the reviewer's Java or Node install. It is still a demo:
+  H2 in memory, no TLS, no orchestration and no production secret handling.
 - **Delivery.** GitHub Actions runs the tests and builds; there is no Jenkins/OpenShift deployment or
   post-release verification.
 - **Payment features.** Refunds, chargebacks, partial captures and multi-currency rounding rules are

@@ -62,7 +62,33 @@ sequenceDiagram
 - JDK 21 (`JAVA_HOME` set to it)
 - Node.js 20+ with npm
 
-Tested with Temurin 21.0.13+9, Gradle 8.10.2 (wrapper), Node 22.22.0, npm 10.9.4.
+Docker is optional. If you have it, Compose is the most reproducible path and does not need a local
+JDK or Node install.
+
+Tested with Temurin 21.0.13+9, Gradle 8.10.2 (wrapper), Node 22.22.0, npm 10.9.4, Docker 29.9.2
+and Compose v5.6.1.
+
+## Run with Docker
+
+The Compose setup builds the backend with the committed Gradle wrapper, builds the page with Node
+22, and serves it from nginx. Only Docker is required.
+
+```bash
+docker compose up --build
+```
+
+Open <http://localhost:3000>. The backend is also on <http://localhost:8080> (Swagger UI at
+<http://localhost:8080/swagger-ui.html>). The frontend container proxies `/payments` to the
+backend, so the browser does not need CORS. Stop it with `docker compose down`.
+
+The provider outcome works the same way:
+
+```bash
+APP_PROVIDER_OUTCOME=DECLINED docker compose up --build
+```
+
+The backend container waits on its healthcheck before the frontend starts. H2 is still in memory,
+so `docker compose down` discards payments and pending outbox rows.
 
 ## Run
 
@@ -269,10 +295,11 @@ and the other design decisions are in [NOTES.md](NOTES.md).
 ## Project structure
 
 ```
-.github/   CI workflow (backend tests, frontend build)
-backend/   Spring Boot service, tests, Gradle wrapper
-frontend/  Vue 3 + TypeScript page and polling composable
-NOTES.md   Decisions, an AI mistake, production gaps
+.github/             CI workflow (backend tests, frontend build)
+backend/             Spring Boot service, tests, Gradle wrapper, Dockerfile
+frontend/            Vue 3 + TypeScript page, polling composable, nginx Dockerfile
+docker-compose.yml   Backend + frontend containers on ports 8080 and 3000
+NOTES.md             Decisions, an AI mistake, production gaps
 ```
 
 Backend packages: `api` (controllers, DTOs, error handling), `config` (OpenAPI metadata),
