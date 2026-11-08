@@ -319,7 +319,9 @@ everything else (including `null`) → `UNKNOWN`.
 
 Rules: an `eventId` is applied once (globally); a callback with `occurredAt` equal to or older than
 the last applied callback is ignored; `UNKNOWN` never replaces a known outcome, while a newer
-`CAPTURED`/`DECLINED` may replace one. A suppressed callback changes no payment field — including
+`CAPTURED`/`DECLINED` may replace one. A late `AUTHORIZED` (which maps to `PENDING`) is suppressed
+after a terminal state for the same reason: it is a pre-outcome state and must not reopen a
+finished payment. A suppressed callback changes no payment field — including
 `lastCallbackOccurredAt` — but its `eventId` is still recorded. The reasoning, the counterexample,
 and the other design decisions are in [NOTES.md](NOTES.md).
 
