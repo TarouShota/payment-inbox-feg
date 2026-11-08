@@ -42,6 +42,19 @@ sequenceDiagram
     end
 ```
 
+## Security and consistency
+
+- Money is `BigDecimal` end to end. Validation rejects zero, negative amounts, more than two
+  decimals and malformed currencies; values are stored as `NUMERIC(19,2)`.
+- Callback processing locks the payment row, deduplicates `eventId` in a global table, and only
+  moves the `occurredAt` watermark when a callback is actually applied.
+- `Idempotency-Key` is a unique database column plus a request fingerprint, so concurrent retries
+  cannot create two payments.
+- Callback HMAC is optional and off by default to keep the assignment contract; when on it uses a
+  timestamp window and constant-time comparison. No secrets are committed.
+- Logs carry a generated or safe inbound `X-Request-Id`; customer references and secrets are not
+  logged. In-memory H2 is demo-only — the production gaps are listed in [NOTES.md](NOTES.md).
+
 ## Requirements
 
 - JDK 21 (`JAVA_HOME` set to it)
@@ -80,11 +93,15 @@ cd backend
 97 backend tests: payment API validation and contract, all callback rules (including equal
 timestamps), the suppressed-callback decision proof, concurrency (two racing callbacks, duplicate
 event ids, simultaneous idempotent creates), signed-callback authentication, real-HTTP end-to-end
-tests of the fake provider, and the generated OpenAPI document. Frontend type-check and production
-build:
+tests of the fake provider, and the generated OpenAPI document.
+
+Five frontend tests cover the polling lifecycle: 2-second polling, stopping at a terminal status,
+aborting the old request when a new payment starts, retrying after a network failure, and clearing
+timers on unmount. Type-check and production build:
 
 ```bash
 cd frontend
+npm test
 npm run build
 ```
 

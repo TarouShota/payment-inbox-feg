@@ -1,58 +1,98 @@
 # NOTES
 
-## Decisions
+## The decision: a suppressed callback does not move the watermark
 
-**Suppressed callbacks only record the eventId.**
+`lastCallbackOccurredAt` is the timestamp of the last callback I actually applied. It is not
+"the last callback I received". That difference is the whole rule 3 decision.
 
-If rule 3 blocks a callback, I don't touch the payment. `status`, `providerStatus` and
-`lastCallbackOccurredAt` stay the same. I still insert the eventId, so a replay gets caught by
-rule 1 and comes back as `DUPLICATE`.
+Concrete sequence:
 
-`lastCallbackOccurredAt` is my watermark: the timestamp of the last callback I actually applied.
-Rule 2 compares new callbacks against it. If a suppressed `UNKNOWN` at T20 moved it, a real
-`DECLINED` with T15 would look stale and get dropped. The provider would have told us the payment
-failed and we'd still show the old status.
+| time | callback | result | payment status | lastCallbackOccurredAt |
+|---|---|---|---|---|
+| 12:00:10 | CAPTURED | applied | SUCCEEDED | 12:00:10 |
+| 12:00:20 | ERROR, maps to UNKNOWN | suppressed | SUCCEEDED | 12:00:10 |
+| 12:00:15 | DECLINED | applied | FAILED | 12:00:15 |
 
-Test case: `CAPTURED@T10` applied, `UNKNOWN@T20` suppressed, `DECLINED@T15` applied. There's a
-regression test for that sequence, and the rule 3 tests check every payment field after a
-suppression.
+The DECLINED is older than the suppressed UNKNOWN, but newer than the last applied callback. That
+is the case the rules care about. If the suppressed callback at 12:00:20 moved the watermark, the
+DECLINED at 12:00:15 would look stale and rule 2 would drop it. We would keep showing SUCCEEDED
+after the provider told us the payment was declined.
 
-I do the same for `AUTHORIZED` after a final status. It maps to `PENDING`, and a late authorization
-shouldn't reopen a finished payment.
+So a rule 3 suppression records the eventId, so a replay is caught by rule 1, and changes nothing
+else: `status`, `providerStatus` and `lastCallbackOccurredAt` stay put. I apply the same guard to a
+late AUTHORIZED after a final status, because it maps to PENDING and would reopen a finished
+payment.
 
-**Dedupe is global, including callbacks that changed nothing.**
+Regression test: `ProviderCallbackRulesTest`, CAPTURED then suppressed UNKNOWN then older DECLINED
+must end FAILED. The rule 3 tests also assert every payment field is unchanged after a suppression.
 
-One table keyed by eventId. A repeat eventId is a duplicate even if the payload changed or it points
-at another payment. I kept it global because the rule says the same eventId is applied once, not
-once per payment. Unknown `providerPaymentId` gets 404 before the dedupe check and isn't recorded,
-so the same eventId can be retried later with the correct id.
+## Dedupe is global
 
-**Row lock in the callback transaction, provider fires after commit.**
+One `processed_callbacks` table keyed by eventId. Once an eventId is accepted it is done, even if
+the payload changes or it points at another payment. The rule says the same eventId is applied
+once, not once per payment. An unknown `providerPaymentId` is 404 before the dedupe check and is
+not recorded, so the same eventId can still be retried later with the correct id. The primary key
+also catches the duplicate insert race.
 
-Callbacks for the same payment can arrive together, so the transaction locks the row and does the
-read, checks and write in one go. I went with that instead of `@Version` because a retry loop on
-version conflicts adds code for no benefit here. The eventId primary key catches the duplicate
-insert race. The fake provider schedules on `AFTER_COMMIT`, so it can't call before the payment is
-saved.
+## Row lock, and the provider fires after commit
+
+The callback transaction locks the payment row with `PESSIMISTIC_WRITE`, then reads, checks and
+writes. Two callbacks for the same payment therefore serialize. I used that instead of `@Version`
+because a retry loop on version conflicts adds code for no benefit here. The fake provider listens
+for `PaymentCreatedEvent` with `AFTER_COMMIT`, so it cannot call back before the payment exists.
+
+## Idempotent create
+
+`POST /payments` accepts an optional `Idempotency-Key`. The key is unique on the payment row, with a
+SHA-256 fingerprint of the normalised `amount|currency|customerReference`. Same key and same request
+returns the original payment with `201`, `Idempotency-Replayed: true`, and does not call the provider
+again. Same key with different data is `409`. A malformed key is `400`. Two simultaneous first
+attempts are settled by the unique index: one creates, the other catches the integrity violation,
+reads the winner and replays it. Without the header every request creates a payment, as before.
+
+The reason is boring and important: network retries and double-clicks must not create two payments.
+
+## Callback auth is opt-in
+
+The assignment contract is unsigned, so HMAC is off by default. When enabled, the caller sends
+`X-Provider-Timestamp` and `X-Provider-Signature`, where the signature is
+HMAC-SHA256(`<timestamp>.<raw JSON body>`). The timestamp must be within five minutes of the server
+clock, signatures are compared in constant time, and the filter runs before the controller. The path
+is normalised so `/provider-callbacks;probe` cannot skip the filter. The fake provider signs its own
+callbacks when auth is on.
+
+Production still needs TLS, a secret manager, key rotation and network controls. This is a shared
+secret between two systems, not mTLS or per-provider key management.
 
 ## AI mistake
 
-The first callback implementation moved `lastCallbackOccurredAt` on every accepted callback,
-including suppressed ones. The normal tests passed.
+The first callback implementation advanced `lastCallbackOccurredAt` for every accepted callback,
+including suppressed ones. The normal tests passed because none of them had an older terminal
+callback arriving after a suppressed UNKNOWN.
 
-I went back through rule 2 with the T10/T20/T15 sequence and wrote a test for it. It failed:
-`DECLINED@T15` was ignored. Fix was to update the watermark and `providerStatus` only on `APPLIED`.
-Suppressed callbacks still record the eventId. That test and the field assertions are in
-`ProviderCallbackRulesTest`.
+I wrote the 12:00:10 / 12:00:20 / 12:00:15 sequence and the test failed: DECLINED was ignored. The
+fix was to update `status`, `providerStatus` and the watermark only on `APPLIED`, while still
+recording the eventId on suppression. The regression test is in `ProviderCallbackRulesTest`.
 
 ## Not production ready
 
-- Callbacks are unsigned by default. I added optional HMAC-SHA256 with a timestamp window, but the
-  assignment contract is unsigned, so it stays off unless enabled. Production still needs TLS, key
-  rotation and network controls.
-- In-memory H2 and a JVM scheduler. A restart loses payments and pending callbacks. No retries,
-  outbox, dead-letter queue or reconciliation.
-- No ledger or audit trail. Status is overwritten in place. A real payment service needs
-  append-only events and the raw callback history.
-- No authentication on the operator API, rate limiting, PII retention or observability. Refunds,
-  chargebacks, partial captures and rounding rules are also missing.
+- **Persistence and delivery.** H2 in memory and a JVM scheduler. A restart loses payments and
+  pending callbacks. There is no retry, outbox, dead-letter queue or reconciliation.
+  The production shape would be: write the payment and an outbox row in one transaction, have a
+  worker send the callback with bounded exponential backoff, park it in a DLQ after N failures,
+  and run a reconciliation job that compares provider status with ours. This is the biggest gap.
+- **Events.** `PaymentCreatedEvent` is in-process. Kafka or RabbitMQ would let other services
+  consume it and survive restarts. Adding a broker only for the demo would add moving parts without
+  proving the callback rules, so I left it out.
+- **Ledger and audit.** Status is overwritten in place. A real payment service needs an append-only
+  event history and the raw callback payloads.
+- **Operator API.** No authentication, rate limiting or PII retention. Callback auth covers
+  provider to us only. TLS, secret rotation and network controls are still needed.
+- **Observability.** Request-id MDC and outcome logs, but no metrics, traces, dashboards or alerts.
+  Production would expose latency and outcome counters and alert on callback failures and unknowns.
+- **Frontend.** One page, no micro frontend or webview shell. The polling composable has unit tests,
+  but there are no component or end-to-end tests.
+- **Delivery.** GitHub Actions runs the tests and builds; there is no Jenkins/OpenShift deployment or
+  post-release verification.
+- **Payment features.** Refunds, chargebacks, partial captures and multi-currency rounding rules are
+  missing.
