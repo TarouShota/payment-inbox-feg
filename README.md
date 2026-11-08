@@ -24,18 +24,17 @@ status until it reaches a final state.
 sequenceDiagram
     participant UI as Vue page (:3000)
     participant API as Spring Boot (:8080)
-    participant P as Fake provider
+    participant R as Callback relay
     participant DB as H2
 
     UI->>API: POST /payments
-    API->>P: authorize
-    P-->>API: providerPaymentId
-    API->>DB: insert payment (PENDING)
+    API->>DB: insert payment + callback_outbox (same transaction)
     API-->>UI: 201 Created
-    Note over P,API: 2–5 s after the transaction commits
-    P->>API: POST /provider-callbacks
+    Note over R,DB: due outbox rows are polled every 100 ms
+    R->>API: POST /provider-callbacks over HTTP
     API->>DB: lock row, dedupe eventId, order by occurredAt
-    API-->>P: 200 APPLIED
+    API-->>R: 200 APPLIED
+    R->>DB: mark outbox row SENT (or retry / DEAD)
     loop every 2 s while PENDING or UNKNOWN
         UI->>API: GET /payments/{id}
         API-->>UI: current status
@@ -48,6 +47,9 @@ sequenceDiagram
   decimals and malformed currencies; values are stored as `NUMERIC(19,2)`.
 - Callback processing locks the payment row, deduplicates `eventId` in a global table, and only
   moves the `occurredAt` watermark when a callback is actually applied.
+- The payment and its outbound callback are written in one transaction to a `callback_outbox`
+  table. A relay sends due rows with bounded exponential backoff and parks a row as `DEAD` after
+  the configured attempts, so a provider outage does not silently drop a callback.
 - `Idempotency-Key` is a unique database column plus a request fingerprint, so concurrent retries
   cannot create two payments.
 - Callback HMAC is optional and off by default to keep the assignment contract; when on it uses a
@@ -90,10 +92,11 @@ cd backend
 ./gradlew test
 ```
 
-97 backend tests: payment API validation and contract, all callback rules (including equal
+103 backend tests: payment API validation and contract, all callback rules (including equal
 timestamps), the suppressed-callback decision proof, concurrency (two racing callbacks, duplicate
-event ids, simultaneous idempotent creates), signed-callback authentication, real-HTTP end-to-end
-tests of the fake provider, and the generated OpenAPI document.
+event ids, simultaneous idempotent creates), signed-callback authentication, outbox delivery,
+retry backoff and dead-lettering, real-HTTP end-to-end tests of the fake provider, and the
+generated OpenAPI document.
 
 Five frontend tests cover the polling lifecycle: 2-second polling, stopping at a terminal status,
 aborting the old request when a new payment starts, retrying after a network failure, and clearing
@@ -121,8 +124,10 @@ not a replacement for the behavioural tests above.
 ## Fake provider
 
 The provider is a class in the backend (`provider/FakePaymentProvider`). It returns a
-`prov-<uuid>` id immediately; after the payment transaction commits, it schedules a callback
-2–5 seconds later and posts it over HTTP to `POST /provider-callbacks`.
+`prov-<uuid>` id immediately and writes the callback into `callback_outbox` in the payment
+transaction. A scheduled relay delivers due rows over HTTP to `POST /provider-callbacks` after
+2–5 seconds. A failed delivery retries with exponential backoff; after `APP_PROVIDER_MAX_ATTEMPTS`
+it is parked as `DEAD` instead of retrying forever.
 
 Configure the reported outcome with environment variables (restart to apply):
 
@@ -136,10 +141,11 @@ APP_PROVIDER_OUTCOME=WHATEVER ./gradlew bootRun   # anything unrecognised -> pay
 Other knobs: `APP_PROVIDER_MIN_DELAY_MS` (default 2000), `APP_PROVIDER_MAX_DELAY_MS` (default
 5000), `APP_PROVIDER_CALLBACK_URL` (default `http://localhost:8080/provider-callbacks`),
 `APP_PROVIDER_AUTO_CALLBACK` (default `true`; tests switch it off),
-`APP_PROVIDER_CONNECT_TIMEOUT_MS` (default 2000), `APP_PROVIDER_READ_TIMEOUT_MS` (default 5000)
-and `APP_PROVIDER_SCHEDULER_POOL_SIZE` (default 4). Callback timestamps further
-ahead than `APP_CALLBACK_MAX_FUTURE_SKEW` (default `5m`) are rejected with `400`, so a bad
-provider clock cannot freeze the ordering watermark.
+`APP_PROVIDER_CONNECT_TIMEOUT_MS` (default 2000), `APP_PROVIDER_READ_TIMEOUT_MS` (default 5000),
+`APP_PROVIDER_RELAY_INTERVAL_MS` (default 100), `APP_PROVIDER_MAX_ATTEMPTS` (default 5),
+`APP_PROVIDER_INITIAL_RETRY_MS` (default 500) and `APP_PROVIDER_MAX_RETRY_MS` (default 30000).
+Callback timestamps further ahead than `APP_CALLBACK_MAX_FUTURE_SKEW` (default `5m`) are rejected
+with `400`, so a bad provider clock cannot freeze the ordering watermark.
 
 ### Callback authentication (opt-in)
 
@@ -271,7 +277,8 @@ NOTES.md   Decisions, an AI mistake, production gaps
 
 Backend packages: `api` (controllers, DTOs, error handling), `config` (OpenAPI metadata),
 `domain` (entities, repositories), `service` (payment creation, callback rules), `provider` (fake
-provider, HTTP callback client), `security` (optional callback HMAC authentication).
+provider, callback outbox and relay, HTTP callback client), `security` (optional callback HMAC
+authentication).
 
-H2 is in-memory: restarting the backend discards payments, and an in-flight fake callback dies with
-the process. This is deliberate for a self-contained demo.
+H2 is in-memory: restarting the backend discards payments and any pending outbox rows. This is
+deliberate for a self-contained demo.

@@ -34,12 +34,24 @@ once, not once per payment. An unknown `providerPaymentId` is 404 before the ded
 not recorded, so the same eventId can still be retried later with the correct id. The primary key
 also catches the duplicate insert race.
 
-## Row lock, and the provider fires after commit
+## Row lock on the way in, outbox on the way out
 
-The callback transaction locks the payment row with `PESSIMISTIC_WRITE`, then reads, checks and
-writes. Two callbacks for the same payment therefore serialize. I used that instead of `@Version`
-because a retry loop on version conflicts adds code for no benefit here. The fake provider listens
-for `PaymentCreatedEvent` with `AFTER_COMMIT`, so it cannot call back before the payment exists.
+Inbound, the callback transaction locks the payment row with `PESSIMISTIC_WRITE`, then reads,
+checks and writes. Two callbacks for the same payment therefore serialize. I used that instead of
+`@Version` because a retry loop on version conflicts adds code for no benefit here.
+
+Outbound, my first version scheduled the fake callback after commit. That has a gap: if the process
+dies between the commit and the send, the payment exists and the callback is gone, and the HTTP
+client swallowed failures. Now the listener runs `BEFORE_COMMIT` and writes a `callback_outbox` row
+in the same transaction as the payment. Either both commit or neither does. A relay polls due rows,
+sends over HTTP and marks them `SENT`. A failed attempt increments the count and sets
+`nextAttemptAt` with exponential backoff (500 ms doubling, capped at 30 s). After 5 attempts the
+row is `DEAD`, which is the dead-letter state.
+
+Delivery is at-least-once: the relay can send, crash before marking `SENT`, and send again. That is
+safe because the callback endpoint already dedupes by `eventId`. The relay is a single instance
+here; production would claim rows with `FOR UPDATE SKIP LOCKED` or use a real queue, and alert on
+rows going `DEAD`.
 
 ## Idempotent create
 
@@ -76,11 +88,11 @@ recording the eventId on suppression. The regression test is in `ProviderCallbac
 
 ## Not production ready
 
-- **Persistence and delivery.** H2 in memory and a JVM scheduler. A restart loses payments and
-  pending callbacks. There is no retry, outbox, dead-letter queue or reconciliation.
-  The production shape would be: write the payment and an outbox row in one transaction, have a
-  worker send the callback with bounded exponential backoff, park it in a DLQ after N failures,
-  and run a reconciliation job that compares provider status with ours. This is the biggest gap.
+- **Persistence and delivery.** H2 in memory means a restart loses payments and pending outbox
+  rows. The outbox, bounded retry and `DEAD` state are there, but the relay is single-instance and
+  there is no reconciliation job or admin replay for dead rows. Production needs a durable
+  database, multiple workers claiming rows safely, alerts when rows go `DEAD`, and a job that
+  compares provider status with ours. This is still the biggest gap.
 - **Events.** `PaymentCreatedEvent` is in-process. Kafka or RabbitMQ would let other services
   consume it and survive restarts. Adding a broker only for the demo would add moving parts without
   proving the callback rules, so I left it out.
