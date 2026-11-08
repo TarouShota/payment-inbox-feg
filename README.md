@@ -31,7 +31,7 @@ sequenceDiagram
     participant DB as H2
 
     UI->>API: POST /payments
-    API->>P: authorize(amount, currency)
+    API->>P: authorize(amount, currency, idempotencyKey)
     P-->>API: prov-<uuid> immediately
     API->>DB: insert payment + callback_outbox (same transaction)
     API-->>UI: 201 PENDING
