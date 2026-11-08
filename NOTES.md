@@ -47,8 +47,9 @@ Suppressed callbacks still record the eventId. That test and the field assertion
 
 ## Not production ready
 
-- Callbacks are unsigned. Anyone who can reach the endpoint can move a payment. Production needs
-  signature checks, replay protection, TLS and network controls.
+- Callbacks are unsigned by default. I added optional HMAC-SHA256 with a timestamp window, but the
+  assignment contract is unsigned, so it stays off unless enabled. Production still needs TLS, key
+  rotation and network controls.
 - In-memory H2 and a JVM scheduler. A restart loses payments and pending callbacks. No retries,
   outbox, dead-letter queue or reconciliation.
 - No ledger or audit trail. Status is overwritten in place. A real payment service needs

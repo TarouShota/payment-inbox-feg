@@ -31,6 +31,12 @@ app:
   callback:
     # Reject provider timestamps further ahead than this; they would freeze the watermark.
     max-future-skew: ${APP_CALLBACK_MAX_FUTURE_SKEW:5m}
+    auth:
+      # Opt-in. The assignment contract is unsigned; enable this to require HMAC callbacks.
+      enabled: ${APP_CALLBACK_AUTH_ENABLED:false}
+      secret: ${APP_CALLBACK_AUTH_SECRET:}
+      # A signed timestamp outside this window (either direction) is rejected as a replay.
+      max-age: ${APP_CALLBACK_AUTH_MAX_AGE:5m}
 
 logging:
   pattern:

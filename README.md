@@ -75,10 +75,10 @@ cd backend
 ./gradlew test
 ```
 
-74 backend tests: payment API validation and contract, all callback rules (including equal
+86 backend tests: payment API validation and contract, all callback rules (including equal
 timestamps), the suppressed-callback decision proof, concurrency (two racing callbacks, duplicate
-event ids), and two real-HTTP end-to-end tests of the fake provider. Frontend type-check and
-production build:
+event ids), signed-callback authentication, and real-HTTP end-to-end tests of the fake provider.
+Frontend type-check and production build:
 
 ```bash
 cd frontend
@@ -107,6 +107,40 @@ Other knobs: `APP_PROVIDER_MIN_DELAY_MS` (default 2000), `APP_PROVIDER_MAX_DELAY
 and `APP_PROVIDER_SCHEDULER_POOL_SIZE` (default 4). Callback timestamps further
 ahead than `APP_CALLBACK_MAX_FUTURE_SKEW` (default `5m`) are rejected with `400`, so a bad
 provider clock cannot freeze the ordering watermark.
+
+### Callback authentication (opt-in)
+
+Callback auth is off by default so the assignment contract stays unchanged. Enable it with:
+
+```bash
+APP_CALLBACK_AUTH_ENABLED=true APP_CALLBACK_AUTH_SECRET="<shared secret>" ./gradlew bootRun
+```
+
+The fake provider signs automatically when auth is on. External callers must send:
+
+- `X-Provider-Timestamp`: epoch seconds
+- `X-Provider-Signature`: lowercase hex HMAC-SHA256 of `<timestamp>.<raw JSON body>`
+
+The timestamp is part of the signed payload and must be within `APP_CALLBACK_AUTH_MAX_AGE`
+(default `5m`) of the server clock, so a captured request cannot be replayed later. Signatures are
+compared in constant time. Missing, tampered, or stale signatures get `401` with
+`{"error":"invalid_signature"}` and are not recorded, so the same `eventId` can still arrive
+correctly later.
+
+```bash
+TS=$(date +%s)
+BODY='{"eventId":"evt-1","providerPaymentId":"prov-...","status":"CAPTURED","occurredAt":"2026-11-08T12:00:00Z"}'
+SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$APP_CALLBACK_AUTH_SECRET" -hex | sed 's/^.* //')
+curl -i -X POST http://localhost:8080/provider-callbacks \
+  -H 'Content-Type: application/json' \
+  -H "X-Provider-Timestamp: $TS" \
+  -H "X-Provider-Signature: $SIG" \
+  -d "$BODY"
+```
+
+In production the secret would come from a secret manager and be rotated; this is a shared-secret
+HMAC, not mTLS or per-provider key management. With auth enabled and a blank secret the service
+refuses to start.
 
 Every request gets an `X-Request-Id` header (incoming safe ids are reused, otherwise one is
 generated) and each callback logs a single `callback outcome=...` line with the event id,
@@ -165,6 +199,10 @@ curl -i -X POST http://localhost:8080/provider-callbacks \
 - `400` for invalid payloads (`eventId`/`providerPaymentId` required, `occurredAt` required ISO-8601
   instant with offset, `status` optional).
 
+When `APP_CALLBACK_AUTH_ENABLED=true`, the same request must also carry
+`X-Provider-Timestamp` and `X-Provider-Signature` (see above); otherwise it is rejected with
+`401` before any payment lookup or event recording.
+
 Status mapping: `AUTHORIZED` → `PENDING`, `CAPTURED` → `SUCCEEDED`, `DECLINED` → `FAILED`,
 everything else (including `null`) → `UNKNOWN`.
 
@@ -183,7 +221,8 @@ NOTES.md   Decisions, an AI mistake, production gaps
 ```
 
 Backend packages: `api` (controllers, DTOs, error handling), `domain` (entities, repositories),
-`service` (payment creation, callback rules), `provider` (fake provider, HTTP callback client).
+`service` (payment creation, callback rules), `provider` (fake provider, HTTP callback client),
+`security` (optional callback HMAC authentication).
 
 H2 is in-memory: restarting the backend discards payments, and an in-flight fake callback dies with
 the process. This is deliberate for a self-contained demo.
