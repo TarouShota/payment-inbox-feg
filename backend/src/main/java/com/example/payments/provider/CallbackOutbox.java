@@ -5,9 +5,13 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.PostLoad;
+import jakarta.persistence.PostPersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import java.time.Instant;
 import java.util.UUID;
+import org.springframework.data.domain.Persistable;
 
 /**
  * A callback that must be delivered. Written in the same transaction as the payment, then
@@ -16,7 +20,7 @@ import java.util.UUID;
  */
 @Entity
 @Table(name = "callback_outbox")
-public class CallbackOutbox {
+public class CallbackOutbox implements Persistable<UUID> {
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)
@@ -55,6 +59,9 @@ public class CallbackOutbox {
 
     @Column(name = "sent_at")
     private Instant sentAt;
+
+    @Transient
+    private boolean isNew = true;
 
     protected CallbackOutbox() {
         // For JPA.
@@ -111,8 +118,20 @@ public class CallbackOutbox {
         return error.length() <= 1000 ? error : error.substring(0, 1000);
     }
 
+    @Override
     public UUID getId() {
         return id;
+    }
+
+    @Override
+    public boolean isNew() {
+        return isNew;
+    }
+
+    @PostLoad
+    @PostPersist
+    void markNotNew() {
+        this.isNew = false;
     }
 
     public UUID getPaymentId() {

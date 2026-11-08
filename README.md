@@ -2,13 +2,15 @@
 
 [![CI](https://github.com/TarouShota/payment-inbox-feg/actions/workflows/ci.yml/badge.svg)](https://github.com/TarouShota/payment-inbox-feg/actions/workflows/ci.yml)
 
-A small operator app for card payments. The operator starts a payment; a fake provider accepts it
-immediately and reports the outcome asynchronously through a callback. The operator follows the
-status until it reaches a final state.
+A small operator app for card payments. The operator starts a payment; the fake provider returns a
+provider payment id immediately, so the service answers `201` with a `PENDING` payment. The
+provider reports the outcome asynchronously through a callback, normally 2–5 seconds later. The
+operator follows the status until it reaches a final state.
 
 - **Backend**: Java 21, Spring Boot 3.3, Gradle wrapper, Spring Web, Spring Data JPA, H2 in-memory.
 - **Frontend**: Vue 3 + TypeScript + Vite, one page, no UI library.
-- Ports: backend **8080**, frontend **3000** (Vite proxies `/payments` to the backend).
+- Ports: backend **8080**, frontend **3000**. In dev, Vite proxies `/payments` to the backend; in
+  Docker, nginx does the same.
 
 ## Screenshots
 
@@ -24,13 +26,17 @@ status until it reaches a final state.
 sequenceDiagram
     participant UI as Vue page (:3000)
     participant API as Spring Boot (:8080)
+    participant P as Fake provider
     participant R as Callback relay
     participant DB as H2
 
     UI->>API: POST /payments
+    API->>P: authorize(amount, currency)
+    P-->>API: prov-<uuid> immediately
     API->>DB: insert payment + callback_outbox (same transaction)
-    API-->>UI: 201 Created
-    Note over R,DB: due outbox rows are polled every 100 ms
+    API-->>UI: 201 PENDING
+    Note over P,DB: callback is due 2–5 s after the payment commits
+    Note over R,DB: the relay polls due rows every 100 ms by default
     R->>API: POST /provider-callbacks over HTTP
     API->>DB: lock row, dedupe eventId, order by occurredAt
     API-->>R: 200 APPLIED
@@ -43,8 +49,11 @@ sequenceDiagram
 
 ## Security and consistency
 
-- Money is `BigDecimal` end to end. Validation rejects zero, negative amounts, more than two
-  decimals and malformed currencies; values are stored as `NUMERIC(19,2)`.
+- Money is `BigDecimal` in the request, domain, provider call and response; the DB column is
+  `NUMERIC(19,2)`. Validation rejects zero, negative amounts, more than two decimals and malformed
+  currencies; `setScale(2)` only pads zeros, it never rounds. The frontend's `12.50` is a
+  placeholder for the expected shape, sends the raw string and only formats the returned value for
+  display; it does no money arithmetic.
 - Callback processing locks the payment row, deduplicates `eventId` in a global table, and only
   moves the `occurredAt` watermark when a callback is actually applied.
 - The payment and its outbound callback are written in one transaction to a `callback_outbox`
@@ -63,7 +72,8 @@ sequenceDiagram
 - Node.js 20+ with npm
 
 Docker is optional. If you have it, Compose is the most reproducible path and does not need a local
-JDK or Node install.
+JDK or Node install. It needs Docker Engine with the Compose plugin and network access for the first
+build (base images, Gradle, Maven and npm).
 
 Tested with Temurin 21.0.13+9, Gradle 8.10.2 (wrapper), Node 22.22.0, npm 10.9.4, Docker 29.9.2
 and Compose v5.6.1.
@@ -71,7 +81,10 @@ and Compose v5.6.1.
 ## Run with Docker
 
 The Compose setup builds the backend with the committed Gradle wrapper, builds the page with Node
-22, and serves it from nginx. Only Docker is required.
+22, and serves it from nginx. You do not need a local JDK or Node install.
+
+The stack has two containers: the Spring Boot backend with embedded H2, and nginx serving the built
+page. There is no separate database container; H2 is the local storage option from the brief.
 
 ```bash
 docker compose up --build
@@ -80,6 +93,10 @@ docker compose up --build
 Open <http://localhost:3000>. The backend is also on <http://localhost:8080> (Swagger UI at
 <http://localhost:8080/swagger-ui.html>). The frontend container proxies `/payments` to the
 backend, so the browser does not need CORS. Stop it with `docker compose down`.
+
+The first build pulls the base images and downloads Gradle and npm dependencies, so it needs
+network once. Runtime is local. If ports 8080 or 3000 are already in use, stop the local dev
+servers first.
 
 The provider outcome works the same way:
 
@@ -103,7 +120,7 @@ Frontend (in a second terminal):
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -118,15 +135,15 @@ cd backend
 ./gradlew test
 ```
 
-103 backend tests: payment API validation and contract, all callback rules (including equal
+107 backend tests: payment API validation and contract, all callback rules (including equal
 timestamps), the suppressed-callback decision proof, concurrency (two racing callbacks, duplicate
 event ids, simultaneous idempotent creates), signed-callback authentication, outbox delivery,
-retry backoff and dead-lettering, real-HTTP end-to-end tests of the fake provider, and the
-generated OpenAPI document.
+retry backoff and dead-lettering, real-HTTP end-to-end tests of the fake provider, the optional
+future-skew guard and its default-off behavior, and the generated OpenAPI document.
 
-Five frontend tests cover the polling lifecycle: 2-second polling, stopping at a terminal status,
-aborting the old request when a new payment starts, retrying after a network failure, and clearing
-timers on unmount. Type-check and production build:
+Seven frontend tests cover the polling lifecycle: 2-second polling, polling through `UNKNOWN`,
+stopping at `SUCCEEDED` or `FAILED`, aborting the old request when a new payment starts, retrying
+after a network failure, and clearing timers on unmount. Type-check and production build:
 
 ```bash
 cd frontend
@@ -164,14 +181,24 @@ APP_PROVIDER_OUTCOME=ERROR    ./gradlew bootRun   # -> payment UNKNOWN
 APP_PROVIDER_OUTCOME=WHATEVER ./gradlew bootRun   # anything unrecognised -> payment UNKNOWN
 ```
 
-Other knobs: `APP_PROVIDER_MIN_DELAY_MS` (default 2000), `APP_PROVIDER_MAX_DELAY_MS` (default
-5000), `APP_PROVIDER_CALLBACK_URL` (default `http://localhost:8080/provider-callbacks`),
-`APP_PROVIDER_AUTO_CALLBACK` (default `true`; tests switch it off),
-`APP_PROVIDER_CONNECT_TIMEOUT_MS` (default 2000), `APP_PROVIDER_READ_TIMEOUT_MS` (default 5000),
-`APP_PROVIDER_RELAY_INTERVAL_MS` (default 100), `APP_PROVIDER_MAX_ATTEMPTS` (default 5),
-`APP_PROVIDER_INITIAL_RETRY_MS` (default 500) and `APP_PROVIDER_MAX_RETRY_MS` (default 30000).
-Callback timestamps further ahead than `APP_CALLBACK_MAX_FUTURE_SKEW` (default `5m`) are rejected
-with `400`, so a bad provider clock cannot freeze the ordering watermark.
+Other knobs:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `APP_PROVIDER_MIN_DELAY_MS` | `2000` | earliest callback delay |
+| `APP_PROVIDER_MAX_DELAY_MS` | `5000` | latest callback delay |
+| `APP_PROVIDER_CALLBACK_URL` | `http://localhost:8080/provider-callbacks` | where the relay posts |
+| `APP_PROVIDER_AUTO_CALLBACK` | `true` | tests switch it off to drive callbacks directly |
+| `APP_PROVIDER_CONNECT_TIMEOUT_MS` | `2000` | callback HTTP connect timeout |
+| `APP_PROVIDER_READ_TIMEOUT_MS` | `5000` | callback HTTP read timeout |
+| `APP_PROVIDER_RELAY_INTERVAL_MS` | `100` | how often due outbox rows are checked |
+| `APP_PROVIDER_MAX_ATTEMPTS` | `5` | attempts before the row becomes `DEAD` |
+| `APP_PROVIDER_INITIAL_RETRY_MS` | `500` | first retry delay; doubles each attempt |
+| `APP_PROVIDER_MAX_RETRY_MS` | `30000` | cap for the retry delay |
+
+`APP_CALLBACK_MAX_FUTURE_SKEW` is off by default (`0s`), so a structurally valid future
+`occurredAt` follows the normal ordering rules. Set it to e.g. `5m` to reject timestamps further
+ahead with `400`, so a bad provider clock cannot freeze the watermark.
 
 ### Callback authentication (opt-in)
 
@@ -221,17 +248,21 @@ curl -i -X POST http://localhost:8080/payments \
   -d '{"amount": 12.50, "currency": "EUR", "customerReference": "ORDER-1001"}'
 ```
 
-- `amount`: positive, at most 2 decimals (JSON number or numeric string, kept exact with `BigDecimal`)
+- `amount`: positive, at most 2 decimals (JSON number or numeric string, kept exact with
+  `BigDecimal`). `12.50` is stored exactly; `12.5` is padded to `12.50`; `12.505` is rejected
+  with `400` — the service does not round.
 - `currency`: exactly 3 letters, normalised to uppercase
 - `customerReference`: non-blank, max 255 chars
 - optional `Idempotency-Key` header (1–128 safe characters)
 
 Retries with the same `Idempotency-Key` and the same data return the original payment: `201`, the
-same body and `Location`, plus `Idempotency-Replayed: true`. The provider is not called again.
-Equivalent amount formatting (`10.0` vs `10.00`) and currency case count as the same request.
-Reusing a key with different data returns `409 idempotency_key_reuse`; a malformed key returns
-`400 invalid_idempotency_key`. Without the header, every request creates a payment. The unique key
-column also settles two simultaneous first attempts: one creates, the other replays.
+same body and `Location`, plus `Idempotency-Replayed: true`. A replay that finds the stored payment
+does not call the provider again. Equivalent amount formatting (`10.0` vs `10.00`) and currency case
+count as the same request. Reusing a key with different data returns `409 idempotency_key_reuse`; a
+malformed key returns `400 invalid_idempotency_key`. Without the header, every request creates a
+payment. The unique key column also settles two simultaneous first attempts: one creates, the other
+replays. Both may reach the fake provider, but it derives the provider id from the key, so they
+cannot create two different provider authorizations.
 
 ```bash
 curl -i -X POST http://localhost:8080/payments \

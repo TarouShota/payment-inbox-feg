@@ -80,6 +80,45 @@ describe('usePaymentPolling', () => {
     unmount()
   })
 
+  it('keeps polling while the status is UNKNOWN', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(payment('UNKNOWN')))
+      .mockResolvedValueOnce(response(payment('SUCCEEDED')))
+
+    const { polling, unmount } = mountPolling()
+    polling.start(payment('PENDING'))
+    await flushMicrotasks()
+    expect(polling.payment.value?.status).toBe('UNKNOWN')
+    expect(polling.isPolling.value).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(polling.payment.value?.status).toBe('SUCCEEDED')
+    expect(polling.isPolling.value).toBe(false)
+
+    unmount()
+  })
+
+  it('stops polling when a pending payment becomes FAILED', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(payment('PENDING')))
+      .mockResolvedValueOnce(response(payment('FAILED')))
+
+    const { polling, unmount } = mountPolling()
+    polling.start(payment('PENDING'))
+    await flushMicrotasks()
+    expect(polling.isPolling.value).toBe(true)
+
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(polling.payment.value?.status).toBe('FAILED')
+    expect(polling.isPolling.value).toBe(false)
+
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+
+    unmount()
+  })
+
   it('does not poll a payment that is already terminal', async () => {
     const { polling, unmount } = mountPolling()
     polling.start(payment('FAILED'))

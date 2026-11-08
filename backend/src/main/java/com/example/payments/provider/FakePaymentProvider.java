@@ -2,6 +2,7 @@ package com.example.payments.provider;
 
 import com.example.payments.service.PaymentCreatedEvent;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
@@ -29,8 +30,14 @@ public class FakePaymentProvider implements PaymentProvider {
     }
 
     @Override
-    public String authorize(BigDecimal amount, String currency) {
-        return "prov-" + UUID.randomUUID();
+    public String authorize(BigDecimal amount, String currency, String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return "prov-" + UUID.randomUUID();
+        }
+        // A real provider keys its idempotency on the client's key. Deriving the id here means
+        // two simultaneous first attempts cannot create two different provider authorizations.
+        return "prov-" + UUID.nameUUIDFromBytes(
+                ("idempotency:" + idempotencyKey).getBytes(StandardCharsets.UTF_8));
     }
 
     /**
@@ -44,17 +51,21 @@ public class FakePaymentProvider implements PaymentProvider {
             return;
         }
         Instant now = Instant.now(clock);
-        ProviderCallback callback = buildCallback(event.providerPaymentId());
+        ProviderCallback callback = buildCallback(event.providerPaymentId(), now);
         outbox.save(new CallbackOutbox(
                 event.paymentId(), callback, now, now.plusMillis(randomDelayMs())));
     }
 
     ProviderCallback buildCallback(String providerPaymentId) {
+        return buildCallback(providerPaymentId, Instant.now(clock));
+    }
+
+    private ProviderCallback buildCallback(String providerPaymentId, Instant occurredAt) {
         return new ProviderCallback(
                 "evt-" + UUID.randomUUID(),
                 providerPaymentId,
                 properties.getOutcome(),
-                Instant.now(clock));
+                occurredAt);
     }
 
     private long randomDelayMs() {

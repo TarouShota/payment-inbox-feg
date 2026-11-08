@@ -33,8 +33,9 @@ app:
     # Disabled in most tests so they can drive callbacks deterministically.
     auto-callback: ${APP_PROVIDER_AUTO_CALLBACK:true}
   callback:
-    # Reject provider timestamps further ahead than this; they would freeze the watermark.
-    max-future-skew: ${APP_CALLBACK_MAX_FUTURE_SKEW:5m}
+    # Optional: reject provider timestamps further ahead than this. Off by default so a valid
+    # future timestamp follows the normal ordering rules.
+    max-future-skew: ${APP_CALLBACK_MAX_FUTURE_SKEW:0s}
     auth:
       # Opt-in. The assignment contract is unsigned; enable this to require HMAC callbacks.
       enabled: ${APP_CALLBACK_AUTH_ENABLED:false}

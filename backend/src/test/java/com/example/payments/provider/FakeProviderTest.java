@@ -33,10 +33,21 @@ class FakeProviderTest {
     void authorizeReturnsProviderPaymentIdImmediately() {
         FakePaymentProvider provider = providerWithOutcome("CAPTURED", mock(CallbackOutboxRepository.class));
 
-        String id = provider.authorize(new BigDecimal("10.00"), "EUR");
+        String id = provider.authorize(new BigDecimal("10.00"), "EUR", null);
 
         assertThat(id).startsWith("prov-");
-        assertThat(provider.authorize(new BigDecimal("10.00"), "EUR")).isNotEqualTo(id);
+        assertThat(provider.authorize(new BigDecimal("10.00"), "EUR", null)).isNotEqualTo(id);
+    }
+
+    @Test
+    void sameIdempotencyKeyReturnsTheSameProviderId() {
+        FakePaymentProvider provider = providerWithOutcome("CAPTURED", mock(CallbackOutboxRepository.class));
+
+        assertThat(provider.authorize(new BigDecimal("10.00"), "EUR", "checkout-1"))
+                .isEqualTo(provider.authorize(new BigDecimal("10.00"), "EUR", "checkout-1"))
+                .startsWith("prov-");
+        assertThat(provider.authorize(new BigDecimal("10.00"), "EUR", "checkout-2"))
+                .isNotEqualTo(provider.authorize(new BigDecimal("10.00"), "EUR", "checkout-1"));
     }
 
     @Test

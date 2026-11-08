@@ -21,8 +21,8 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.http.ResponseEntity;
 
 /**
- * End-to-end: the fake provider schedules its callback after commit and delivers it over real
- * HTTP to the running service. The default outcome (CAPTURED) ends in SUCCEEDED.
+ * End-to-end: the fake provider writes its callback into the payment transaction and delivers
+ * it over real HTTP to the running service. The default outcome (CAPTURED) ends in SUCCEEDED.
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -65,11 +65,15 @@ class FakeProviderIntegrationTest {
         String providerPaymentId = payment.path("providerPaymentId").asText();
         assertThat(providerPaymentId).startsWith("prov-");
 
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(outbox.findAll())
-                .anySatisfy(row -> {
-                    assertThat(row.getProviderPaymentId()).isEqualTo(providerPaymentId);
-                    assertThat(row.getState()).isEqualTo(CallbackDeliveryState.SENT);
-                }));
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+            var rows = outbox.findAll().stream()
+                    .filter(row -> row.getProviderPaymentId().equals(providerPaymentId))
+                    .toList();
+            assertThat(rows).hasSize(1);
+            assertThat(rows.get(0).getState()).isEqualTo(CallbackDeliveryState.SENT);
+            assertThat(rows.get(0).getAttempts()).isZero();
+            assertThat(rows.get(0).getSentAt()).isNotNull();
+        });
     }
 
     private JsonNode createPayment() {

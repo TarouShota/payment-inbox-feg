@@ -7,6 +7,7 @@ import com.example.payments.domain.PaymentStatus;
 import com.example.payments.domain.ProcessedCallback;
 import com.example.payments.domain.ProcessedCallbackRepository;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import org.slf4j.Logger;
@@ -48,14 +49,6 @@ public class CallbackService {
         Instant now = clock.instant();
         Instant occurredAt = request.occurredAt().truncatedTo(ChronoUnit.MICROS);
 
-        // A timestamp far ahead of our clock would advance the watermark and freeze the
-        // payment forever. A small allowance covers ordinary clock skew.
-        if (occurredAt.isAfter(now.plus(properties.getMaxFutureSkew()))) {
-            log.warn("callback rejected reason=occurred_at_in_future eventId={} providerPaymentId={} occurredAt={}",
-                    request.eventId(), request.providerPaymentId(), occurredAt);
-            throw new InvalidCallbackTimeException();
-        }
-
         Payment payment = payments.findByProviderPaymentIdForUpdate(request.providerPaymentId())
                 .orElseGet(() -> {
                     log.info("callback rejected reason=unknown_provider_payment eventId={} providerPaymentId={}",
@@ -67,6 +60,17 @@ public class CallbackService {
             log.debug("callback outcome=DUPLICATE eventId={} paymentId={} reason=already_recorded",
                     request.eventId(), payment.getId());
             return CallbackApplyResult.DUPLICATE;
+        }
+
+        // Optional guard, off by default. When enabled, a timestamp far ahead of our clock
+        // would otherwise advance the watermark and freeze the payment. The lookup above runs
+        // first so an unknown provider id is still a 404, even with a future timestamp.
+        Duration maxFutureSkew = properties.getMaxFutureSkew();
+        if (!maxFutureSkew.isZero() && !maxFutureSkew.isNegative()
+                && occurredAt.isAfter(now.plus(maxFutureSkew))) {
+            log.warn("callback rejected reason=occurred_at_in_future eventId={} providerPaymentId={} occurredAt={}",
+                    request.eventId(), request.providerPaymentId(), occurredAt);
+            throw new InvalidCallbackTimeException();
         }
 
         // Record every accepted event id, including events that end up ignored or suppressed,

@@ -50,7 +50,13 @@ public class CallbackRelay {
                 log.warn("callback outbox attempt failed outboxId={} eventId={} attempts={} state={} error={}",
                         item.getId(), item.getEventId(), item.getAttempts(), item.getState(), e.toString());
             }
-            outbox.save(item);
+            try {
+                outbox.save(item);
+            } catch (RuntimeException e) {
+                // A transient DB error on one row must not skip the rest of this batch.
+                log.error("callback outbox save failed outboxId={} eventId={} state={}",
+                        item.getId(), item.getEventId(), item.getState(), e);
+            }
         }
     }
 }

@@ -83,7 +83,7 @@ public class PaymentService {
     private Payment createNew(CreatePaymentRequest request, String idempotencyKey,
                               String idempotencyRequestHash) {
         String currency = request.currency().toUpperCase(Locale.ROOT);
-        String providerPaymentId = provider.authorize(request.amount(), currency);
+        String providerPaymentId = provider.authorize(request.amount(), currency, idempotencyKey);
 
         Payment payment = new Payment(
                 UUID.randomUUID(),

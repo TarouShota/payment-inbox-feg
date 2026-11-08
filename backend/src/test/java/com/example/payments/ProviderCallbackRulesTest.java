@@ -29,7 +29,10 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
-@SpringBootTest(properties = "app.provider.auto-callback=false")
+@SpringBootTest(properties = {
+        "app.provider.auto-callback=false",
+        "app.callback.max-future-skew=5m"
+})
 @AutoConfigureMockMvc
 class ProviderCallbackRulesTest {
 
@@ -422,6 +425,19 @@ class ProviderCallbackRulesTest {
         Payment payment = payment(providerPaymentId);
         assertThat(payment.getStatus().name()).isEqualTo("PENDING");
         assertThat(payment.getLastCallbackOccurredAt()).isNull();
+    }
+
+    @Test
+    void futureTimestampWithUnknownProviderIs404Not400() throws Exception {
+        mockMvc.perform(post("/provider-callbacks")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(callbackJson(
+                                "evt-future-unknown", "prov-missing", "CAPTURED",
+                                Instant.now().plus(10, ChronoUnit.MINUTES))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error").value("unknown_provider_payment"));
+
+        assertThat(processedCallbacks.count()).isZero();
     }
 
     @Test
