@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: payment-inbox
+  datasource:
+    url: jdbc:h2:mem:${random.uuid};DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+server:
+  port: 8080
+
+app:
+  provider:
+    # Any value: CAPTURED -> SUCCEEDED, DECLINED -> FAILED, anything else -> UNKNOWN.
+    outcome: ${APP_PROVIDER_OUTCOME:CAPTURED}
+    callback-url: ${APP_PROVIDER_CALLBACK_URL:http://localhost:8080/provider-callbacks}
+    min-delay-ms: ${APP_PROVIDER_MIN_DELAY_MS:2000}
+    max-delay-ms: ${APP_PROVIDER_MAX_DELAY_MS:5000}
+    # Disabled in most tests so they can drive callbacks deterministically.
+    auto-callback: ${APP_PROVIDER_AUTO_CALLBACK:true}
